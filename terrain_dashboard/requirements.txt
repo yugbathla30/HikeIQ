@@ -1,0 +1,10 @@
+numpy>=2.0
+pandas>=2.2
+requests>=2.31
+rasterio>=1.4
+affine>=2.4
+streamlit>=1.36
+streamlit-folium>=0.22
+folium>=0.17
+plotly>=5.22
+pytest>=8.0
