@@ -4,6 +4,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
+from terrain_dashboard.config import PRIMARY_ACCENT, PRIMARY_DARK, SECONDARY_ACCENT, SECONDARY_DARK
 from terrain_dashboard.config import STEEPNESS_CHART_COLORS, STEEPNESS_ORDER
 from terrain_dashboard.analytics import RouteAnalysis
 
@@ -11,27 +12,14 @@ from terrain_dashboard.analytics import RouteAnalysis
 def _dark_layout(fig: go.Figure, title: str) -> go.Figure:
     fig.update_layout(
         title=title,
-        template="plotly_dark",
-        margin=dict(l=18, r=18, t=54, b=18),
-        font=dict(family="Inter, ui-sans-serif, system-ui", size=13, color="#F8FAFC"),
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        title_font=dict(size=18, color="#F8FAFC"),
-        hoverlabel=dict(bgcolor="#101D2C", font_color="#F8FAFC"),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-    )
-    return fig
-
-
-def _apply_layout(fig: go.Figure, title: str) -> go.Figure:
-    fig.update_layout(
-        title=title,
         template="plotly_white",
-        margin=dict(l=20, r=20, t=60, b=20),
-        font=dict(family="Inter, ui-sans-serif, system-ui", size=13),
+        margin=dict(l=18, r=18, t=56, b=18),
+        font=dict(family="Avenir Next, Trebuchet MS, sans-serif", size=13, color=PRIMARY_DARK),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        title_font=dict(size=18, color="#1f2937"),
+        title_font=dict(size=18, color=PRIMARY_DARK),
+        hoverlabel=dict(bgcolor="#fff7eb", font_color=PRIMARY_DARK),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
     )
     return fig
 
@@ -44,11 +32,11 @@ def build_elevation_histogram(df: pd.DataFrame) -> go.Figure:
         values,
         x="elevation_m",
         nbins=24,
-        color_discrete_sequence=["#2a9d8f"],
+        color_discrete_sequence=[PRIMARY_ACCENT],
         labels={"elevation_m": "Elevation (m)"},
     )
     fig.update_traces(marker_line_color="rgba(255,255,255,0.45)", marker_line_width=1)
-    return _apply_layout(fig, "Elevation Distribution")
+    return _dark_layout(fig, "Elevation Distribution")
 
 
 def build_slope_histogram(df: pd.DataFrame) -> go.Figure:
@@ -59,11 +47,11 @@ def build_slope_histogram(df: pd.DataFrame) -> go.Figure:
         values,
         x="slope_degrees",
         nbins=24,
-        color_discrete_sequence=["#d08c60"],
+        color_discrete_sequence=[SECONDARY_DARK],
         labels={"slope_degrees": "Slope (degrees)"},
     )
     fig.update_traces(marker_line_color="rgba(255,255,255,0.45)", marker_line_width=1)
-    return _apply_layout(fig, "Slope Distribution")
+    return _dark_layout(fig, "Slope Distribution")
 
 
 def build_terrain_distribution_chart(df: pd.DataFrame) -> go.Figure:
@@ -81,7 +69,7 @@ def build_terrain_distribution_chart(df: pd.DataFrame) -> go.Figure:
     )
     fig.update_traces(marker_line_width=0, hovertemplate="%{x}: %{y}<extra></extra>")
     fig.update_layout(showlegend=False)
-    return _apply_layout(fig, "Local Terrain Steepness Distribution")
+    return _dark_layout(fig, "Local Terrain Steepness Distribution")
 
 
 def build_gradient_gauge(slope_percent: float | None, steepness_name: str) -> go.Figure:
@@ -98,12 +86,12 @@ def build_gradient_gauge(slope_percent: float | None, steepness_name: str) -> go
             title={"text": f"Gradient gauge · {steepness_name}"},
             gauge={
                 "axis": {"range": [0, max_axis]},
-                "bar": {"color": "#2a9d8f"},
+                "bar": {"color": PRIMARY_ACCENT},
                 "steps": [
-                    {"range": [0, 5], "color": "rgba(42,157,143,0.18)"},
-                    {"range": [5, 15], "color": "rgba(208,140,96,0.18)"},
-                    {"range": [15, 30], "color": "rgba(199,125,255,0.18)"},
-                    {"range": [30, max_axis], "color": "rgba(193,18,31,0.18)"},
+                    {"range": [0, 5], "color": "rgba(250,164,189,0.26)"},
+                    {"range": [5, 15], "color": "rgba(245,100,169,0.22)"},
+                    {"range": [15, 30], "color": "rgba(113,47,121,0.18)"},
+                    {"range": [30, max_axis], "color": "rgba(46,2,25,0.18)"},
                 ],
             },
         )
@@ -112,7 +100,7 @@ def build_gradient_gauge(slope_percent: float | None, steepness_name: str) -> go
         margin=dict(l=20, r=20, t=50, b=20),
         template="plotly_white",
         paper_bgcolor="rgba(0,0,0,0)",
-        font=dict(family="Inter, ui-sans-serif, system-ui", size=13),
+        font=dict(family="Avenir Next, Trebuchet MS, sans-serif", size=13, color=PRIMARY_DARK),
     )
     return fig
 
@@ -124,10 +112,12 @@ def build_elevation_profile(analysis: RouteAnalysis) -> go.Figure:
     hover_text = []
     for _, row in frame.iterrows():
         waypoint = row.get("point_name") or f"Waypoint {int(row['point_index'])}"
+        elevation_text = "--" if pd.isna(row.get("elevation_m")) else f"{float(row['elevation_m']):.1f} m"
+        slope_text = "--" if pd.isna(row.get("slope_percent")) else f"{float(row['slope_percent']):.1f}%"
         hover_text.append(
             f"Distance: {float(row['cumulative_distance_km']):.2f} km<br>"
-            f"Elevation: {('--' if pd.isna(row.get('elevation_m')) else f'{float(row['elevation_m']):.1f} m')}<br>"
-            f"Slope: {('--' if pd.isna(row.get('slope_percent')) else f'{float(row['slope_percent']):.1f}%')}<br>"
+            f"Elevation: {elevation_text}<br>"
+            f"Slope: {slope_text}<br>"
             f"Waypoint: {waypoint}"
         )
 
@@ -138,8 +128,8 @@ def build_elevation_profile(analysis: RouteAnalysis) -> go.Figure:
             y=frame["elevation_m"],
             mode="lines+markers",
             name="Elevation",
-            line=dict(color="#3B82F6", width=3),
-            marker=dict(size=7, color="#22C55E", line=dict(color="#08131F", width=1)),
+            line=dict(color=PRIMARY_ACCENT, width=3),
+            marker=dict(size=7, color=SECONDARY_ACCENT, line=dict(color="#fff7eb", width=1)),
             text=hover_text,
             hovertemplate="%{text}<extra></extra>",
         )
@@ -151,20 +141,20 @@ def build_elevation_profile(analysis: RouteAnalysis) -> go.Figure:
             mode="lines",
             name="Slope %",
             yaxis="y2",
-            line=dict(color="#F59E0B", width=2, dash="dot"),
+            line=dict(color=SECONDARY_DARK, width=2, dash="dot"),
             hovertemplate="Distance: %{x:.2f} km<br>Slope: %{y:.1f}%<extra></extra>",
         )
     )
     fig.update_layout(
-        xaxis=dict(title="Distance (km)", gridcolor="rgba(255,255,255,0.08)"),
-        yaxis=dict(title="Elevation (m)", gridcolor="rgba(255,255,255,0.08)"),
+        xaxis=dict(title="Distance (km)", gridcolor="rgba(46,2,25,0.08)"),
+        yaxis=dict(title="Elevation (m)", gridcolor="rgba(46,2,25,0.08)"),
         yaxis2=dict(
             title="Slope (%)",
             overlaying="y",
             side="right",
             showgrid=False,
             zeroline=False,
-            color="#F59E0B",
+            color=SECONDARY_DARK,
         ),
         dragmode="pan",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
@@ -177,8 +167,8 @@ def build_difficulty_gauge(analysis: RouteAnalysis) -> go.Figure:
 
     score = max(0, min(100, int(analysis.difficulty_score)))
     label = analysis.difficulty_label
-    colors = {"Easy": "#22C55E", "Moderate": "#3B82F6", "Hard": "#F59E0B", "Extreme": "#EF4444"}
-    color = colors.get(label, "#3B82F6")
+    colors = {"Easy": PRIMARY_ACCENT, "Moderate": SECONDARY_ACCENT, "Hard": SECONDARY_DARK, "Extreme": PRIMARY_DARK}
+    color = colors.get(label, SECONDARY_DARK)
 
     fig = go.Figure(
         go.Pie(
@@ -197,7 +187,7 @@ def build_difficulty_gauge(analysis: RouteAnalysis) -> go.Figure:
         x=0.5,
         y=0.5,
         showarrow=False,
-        font=dict(size=28, color="#F8FAFC"),
+        font=dict(size=28, color=PRIMARY_DARK),
     )
     fig.update_layout(
         margin=dict(l=18, r=18, t=18, b=18),
@@ -237,7 +227,7 @@ def build_time_estimates_chart(analysis: RouteAnalysis) -> go.Figure:
             ],
         }
     )
-    fig = px.bar(frame, x="activity", y="hours", color="activity", color_discrete_sequence=["#22C55E", "#3B82F6", "#F59E0B", "#EF4444"])
+    fig = px.bar(frame, x="activity", y="hours", color="activity", color_discrete_sequence=[PRIMARY_ACCENT, SECONDARY_DARK, SECONDARY_ACCENT, PRIMARY_DARK])
     fig.update_traces(hovertemplate="%{x}: %{y:.2f} hours<extra></extra>")
     fig.update_layout(showlegend=False, xaxis_title=None, yaxis_title="Hours")
     return _dark_layout(fig, "Activity time estimates")
@@ -266,7 +256,7 @@ def build_comparison_bars(left_analysis: RouteAnalysis, right_analysis: RouteAna
         }
     )
     fig = go.Figure()
-    fig.add_bar(name=left_analysis.route_name, x=frame["metric"], y=frame[left_analysis.route_name], marker_color="#22C55E")
-    fig.add_bar(name=right_analysis.route_name, x=frame["metric"], y=frame[right_analysis.route_name], marker_color="#3B82F6")
+    fig.add_bar(name=left_analysis.route_name, x=frame["metric"], y=frame[left_analysis.route_name], marker_color=PRIMARY_ACCENT)
+    fig.add_bar(name=right_analysis.route_name, x=frame["metric"], y=frame[right_analysis.route_name], marker_color=SECONDARY_DARK)
     fig.update_layout(barmode="group", xaxis_title=None, yaxis_title="Value")
     return _dark_layout(fig, "Trail comparison")
