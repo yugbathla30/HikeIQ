@@ -3,4 +3,6 @@ __pycache__/
 .cache/
 *.pyc
 *.csv
+!data/raw/*.csv
+outputs/
 !requirements.txt
