@@ -1,9 +1,9 @@
 from __future__ import annotations
-
 import hashlib
 import io
 import json
-from datetime import datetime
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -11,10 +11,14 @@ import pandas as pd
 import streamlit as st
 from streamlit_folium import st_folium
 
-from terrain_dashboard import analytics, charts, config, exports, gpx_parser, maps, terrain_engine, utils
-
-
 APP_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = APP_DIR.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from terrain_dashboard import analytics, charts, config, demo_data, exports, gpx_parser, maps, terrain_engine, utils
+
+
 STYLE_PATH = APP_DIR / "styles.css"
 
 
@@ -26,58 +30,11 @@ st.set_page_config(
 )
 
 
-DARK_THEME_VARS = {
-    "--hikeiq-bg": config.PRIMARY_BACKGROUND,
-    "--hikeiq-surface": config.SECONDARY_SURFACE,
-    "--hikeiq-card": config.CARD_SURFACE,
-    "--hikeiq-border": config.BORDER_COLOR,
-    "--hikeiq-text": config.TEXT_PRIMARY,
-    "--hikeiq-text-secondary": config.TEXT_SECONDARY,
-    "--hikeiq-accent-green": config.ACCENT_GREEN,
-    "--hikeiq-accent-blue": config.ACCENT_BLUE,
-    "--hikeiq-accent-orange": config.ACCENT_ORANGE,
-    "--hikeiq-danger": config.DANGER,
-}
+def inject_styles() -> None:
+    """Load the premium CSS shell."""
 
-LIGHT_THEME_VARS = {
-    "--hikeiq-bg": "#f3f7fb",
-    "--hikeiq-surface": "#ffffff",
-    "--hikeiq-card": "#edf3f8",
-    "--hikeiq-border": "rgba(15, 23, 42, 0.10)",
-    "--hikeiq-text": "#0f172a",
-    "--hikeiq-text-secondary": "#475569",
-    "--hikeiq-accent-green": config.ACCENT_GREEN,
-    "--hikeiq-accent-blue": config.ACCENT_BLUE,
-    "--hikeiq-accent-orange": config.ACCENT_ORANGE,
-    "--hikeiq-danger": config.DANGER,
-}
-
-DEMO_ROUTE = pd.DataFrame(
-    [
-        {"route_name": "Alpine demo trail", "source": "demo", "segment_index": 1, "segment_point_index": 1, "point_index": 1, "latitude": 39.6572, "longitude": -105.7692, "point_name": "Trailhead", "time": None, "elevation_m": None},
-        {"route_name": "Alpine demo trail", "source": "demo", "segment_index": 1, "segment_point_index": 2, "point_index": 2, "latitude": 39.6614, "longitude": -105.7578, "point_name": "Aspen bend", "time": None, "elevation_m": None},
-        {"route_name": "Alpine demo trail", "source": "demo", "segment_index": 1, "segment_point_index": 3, "point_index": 3, "latitude": 39.6661, "longitude": -105.7481, "point_name": "Switchback one", "time": None, "elevation_m": None},
-        {"route_name": "Alpine demo trail", "source": "demo", "segment_index": 1, "segment_point_index": 4, "point_index": 4, "latitude": 39.6735, "longitude": -105.7422, "point_name": "Ridge shelf", "time": None, "elevation_m": None},
-        {"route_name": "Alpine demo trail", "source": "demo", "segment_index": 1, "segment_point_index": 5, "point_index": 5, "latitude": 39.6798, "longitude": -105.7358, "point_name": "Lookout", "time": None, "elevation_m": None},
-        {"route_name": "Alpine demo trail", "source": "demo", "segment_index": 1, "segment_point_index": 6, "point_index": 6, "latitude": 39.6846, "longitude": -105.7258, "point_name": "Summit saddle", "time": None, "elevation_m": None},
-        {"route_name": "Alpine demo trail", "source": "demo", "segment_index": 1, "segment_point_index": 7, "point_index": 7, "latitude": 39.6892, "longitude": -105.7146, "point_name": "High meadow", "time": None, "elevation_m": None},
-        {"route_name": "Alpine demo trail", "source": "demo", "segment_index": 1, "segment_point_index": 8, "point_index": 8, "latitude": 39.6948, "longitude": -105.7039, "point_name": "Cliff edge", "time": None, "elevation_m": None},
-        {"route_name": "Alpine demo trail", "source": "demo", "segment_index": 1, "segment_point_index": 9, "point_index": 9, "latitude": 39.7002, "longitude": -105.6975, "point_name": "Lake overlook", "time": None, "elevation_m": None},
-        {"route_name": "Alpine demo trail", "source": "demo", "segment_index": 1, "segment_point_index": 10, "point_index": 10, "latitude": 39.7053, "longitude": -105.6928, "point_name": "Finish", "time": None, "elevation_m": None},
-    ]
-)
-
-
-def inject_styles(theme: str) -> None:
-    """Load the premium CSS shell and theme variables."""
-
-    palette = DARK_THEME_VARS if theme == "dark" else LIGHT_THEME_VARS
     css = STYLE_PATH.read_text(encoding="utf-8")
-    root_vars = "; ".join(f"{key}: {value}" for key, value in palette.items())
-    st.markdown(
-        f"<style>:root {{{root_vars};}}\n{css}</style>",
-        unsafe_allow_html=True,
-    )
+    st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
 
 
 def initialize_state() -> None:
@@ -86,11 +43,10 @@ def initialize_state() -> None:
     defaults = {
         "active_page": config.DEFAULT_ACTIVE_PAGE,
         "route_mode": "Demo trail",
-        "theme": config.DEFAULT_THEME,
         "units": config.DEFAULT_UNITS,
-        "route_theme": config.DEFAULT_ROUTE_THEME,
         "show_contours": False,
         "show_labels": True,
+        "selected_demo_route_name": None,
         "cache_dir": config.DEFAULT_CACHE_DIR,
         "max_workers": config.DEFAULT_MAX_WORKERS,
         "max_retries": config.DEFAULT_MAX_RETRIES,
@@ -103,10 +59,15 @@ def initialize_state() -> None:
         "current_analysis": None,
         "current_analysis_signature": None,
         "analysis_history": [],
-        "hero_scroll": False,
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
+
+    demo_routes = list(cached_demo_routes())
+    if demo_routes and st.session_state.selected_demo_route_name is None:
+        st.session_state.selected_demo_route_name = demo_routes[0].name
+    if demo_routes and st.session_state.current_route_payload is None:
+        set_demo_route(st.session_state.selected_demo_route_name or demo_routes[0].name)
 
 
 @st.cache_data(show_spinner=False)
@@ -140,9 +101,19 @@ def cached_parse_gpx(file_bytes: bytes, file_name: str) -> gpx_parser.ParsedRout
 
 @st.cache_data(show_spinner=False)
 def cached_demo_route() -> gpx_parser.ParsedRoute:
-    """Return the bundled demo route."""
+    """Return the first bundled demo route."""
 
-    return gpx_parser.ParsedRoute(name="Alpine demo trail", source="demo", points=DEMO_ROUTE.copy())
+    routes = cached_demo_routes()
+    if not routes:
+        raise ValueError("No bundled demo routes were found.")
+    return routes[0]
+
+
+@st.cache_data(show_spinner=False)
+def cached_demo_routes() -> tuple[gpx_parser.ParsedRoute, ...]:
+    """Return every bundled demo route."""
+
+    return demo_data.load_demo_routes()
 
 
 def frame_signature(frame: pd.DataFrame, route_name: str, source: str) -> str:
@@ -249,7 +220,7 @@ def register_history_entry(analysis: analytics.RouteAnalysis, payload: dict[str,
             "difficulty_label": analysis.difficulty_label,
             "hiking_time_hours": analysis.hiking_time_hours,
             "calories_burned": analysis.calories_burned,
-            "created_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         },
     )
     st.session_state.analysis_history = history[:8]
@@ -283,6 +254,11 @@ def route_badge(label: str, color: str) -> str:
     return f'<span class="route-pill" style="border-color:{color}33;color:{color};background:{color}14;">{label}</span>'
 
 
+def vertical_space(size: str = "medium") -> None:
+    heights = {"small": "0.5rem", "medium": "1rem", "large": "1.5rem"}
+    st.markdown(f"<div style='height:{heights.get(size, '1rem')};'></div>", unsafe_allow_html=True)
+
+
 def metric_card_html(icon: str, label: str, value: str, caption: str, accent: str) -> str:
     return f"""
     <div class="kpi-card">
@@ -303,7 +279,22 @@ def render_metric_row(metrics: list[tuple[str, str, str, str, str]]) -> None:
 
 
 def demo_route_payload() -> dict[str, Any]:
+    selected_name = st.session_state.get("selected_demo_route_name")
+    for route in cached_demo_routes():
+        if route.name == selected_name:
+            return payload_from_parsed_route(route)
     return payload_from_parsed_route(cached_demo_route())
+
+
+def set_demo_route(route_name: str) -> None:
+    routes = {route.name: route for route in cached_demo_routes()}
+    route = routes.get(route_name)
+    if route is None:
+        return
+    st.session_state.selected_demo_route_name = route_name
+    st.session_state.current_route_payload = payload_from_parsed_route(route)
+    st.session_state.current_analysis = None
+    st.session_state.current_analysis_signature = None
 
 
 def set_payload(parsed: gpx_parser.ParsedRoute) -> None:
@@ -313,7 +304,11 @@ def set_payload(parsed: gpx_parser.ParsedRoute) -> None:
 
 
 def clear_current_trail() -> None:
-    st.session_state.current_route_payload = None
+    if cached_demo_routes():
+        set_demo_route(st.session_state.selected_demo_route_name or cached_demo_routes()[0].name)
+    else:
+        st.session_state.current_route_payload = None
+        st.session_state.selected_demo_route_name = None
     st.session_state.current_analysis = None
     st.session_state.current_analysis_signature = None
 
@@ -333,7 +328,7 @@ def recent_trail_buttons() -> None:
             st.caption(
                 f"{format_distance(entry['distance_km'], st.session_state.units)} · {format_elevation(entry['elevation_gain_m'], st.session_state.units)} gain · {entry['difficulty_label']}"
             )
-            if st.button("Load trail", key=f"load-history-{entry['signature']}", width="stretch"):
+            if st.button("Load trail", key=f"load-history-{entry['signature']}", width="stretch", help="Reload this trail into the active analysis view."):
                 st.session_state.current_route_payload = entry["payload"]
                 st.session_state.current_analysis = None
                 st.session_state.current_analysis_signature = None
@@ -345,7 +340,6 @@ def render_sidebar() -> None:
         st.markdown(
             """
             <div class="hikeiq-brand">
-                <div class="hikeiq-brand-mark">:material/hiking:</div>
                 <div>
                     <div class="hikeiq-brand-title">HikeIQ</div>
                     <div class="hikeiq-brand-subtitle">Hiking & Trek Difficulty Analyzer</div>
@@ -361,38 +355,68 @@ def render_sidebar() -> None:
             key="sidebar-nav",
         )
 
+        st.markdown("### Demo trails")
+        demo_routes = list(cached_demo_routes())
+        if demo_routes:
+            route_names = [route.name for route in demo_routes]
+            selected_demo_name = st.selectbox(
+                "Selected demo trail",
+                route_names,
+                index=route_names.index(st.session_state.selected_demo_route_name) if st.session_state.selected_demo_route_name in route_names else 0,
+                key="selected-demo-route",
+                help="Switch the active trail used by the home and analysis views.",
+            )
+            if selected_demo_name != st.session_state.selected_demo_route_name or st.session_state.current_route_payload is None:
+                set_demo_route(selected_demo_name)
+        if st.button("Reset demo trail", width="stretch", help="Restore the first bundled demo trail and its analysis."):
+            if demo_routes:
+                set_demo_route(demo_routes[0].name)
+            st.rerun()
+
         st.markdown("### Upload GPX")
         uploaded_file = st.file_uploader(
             "Upload a GPX route",
             type=["gpx", "xml"],
             label_visibility="collapsed",
-            help="Parse a track or route and analyze its terrain.",
+            help="Upload a GPX file to replace the current active route.",
         )
         if uploaded_file is not None:
             try:
                 parsed = cached_parse_gpx(uploaded_file.getvalue(), uploaded_file.name)
                 set_payload(parsed)
+                st.session_state.route_mode = "Upload GPX"
+                st.session_state.active_page = "Trail analysis"
                 st.success(f"Loaded {parsed.name}.")
+                st.rerun()
             except ValueError as exc:
                 st.error(str(exc))
 
-        with st.container(horizontal=True):
-            if st.button("Demo trail", type="primary", width="stretch"):
-                st.session_state.route_mode = "Demo trail"
+        action_left, action_right = st.columns(2)
+        with action_left:
+            if st.button("Open analysis", type="primary", width="stretch", help="Open the terrain analysis workspace for the active route."):
                 st.session_state.active_page = "Trail analysis"
-                set_payload(cached_demo_route())
                 st.rerun()
-            if st.button("Clear", width="stretch"):
+        with action_right:
+            if st.button("Clear selection", width="stretch", help="Clear the active uploaded route and restore the demo selection."):
                 clear_current_trail()
+                st.session_state.route_mode = "Demo trail"
                 st.rerun()
 
         st.markdown("### Recent trails")
         recent_trail_buttons()
 
-        st.markdown("### Current settings")
-        st.caption(f"Units: {st.session_state.units.title()}")
-        st.caption(f"Theme: {st.session_state.theme.title()}")
-        st.caption(f"Map: {st.session_state.route_theme}")
+        st.markdown("### Analysis settings")
+        st.session_state.units = st.segmented_control("Units", options=config.UNITS_OPTIONS, default=st.session_state.units, key="sidebar-units")
+        st.session_state.weight_kg = st.number_input("Weight (kg)", min_value=30.0, max_value=180.0, value=float(st.session_state.weight_kg), step=0.5)
+        st.session_state.gender = st.segmented_control("Gender", options=config.GENDER_OPTIONS, default=st.session_state.gender, key="sidebar-gender")
+        st.session_state.fitness_level = st.segmented_control("Fitness level", options=config.FITNESS_LEVEL_OPTIONS, default=st.session_state.fitness_level, key="sidebar-fitness")
+
+        with st.expander("Advanced cache settings", expanded=False):
+            st.session_state.cache_dir = st.text_input("Cache directory", value=str(st.session_state.cache_dir), help="Local folder used for terrain tile caching.")
+            st.session_state.max_workers = st.number_input("Max workers", min_value=1, max_value=32, value=int(st.session_state.max_workers), step=1)
+            st.session_state.max_retries = st.number_input("Max retries", min_value=0, max_value=10, value=int(st.session_state.max_retries), step=1)
+            st.session_state.retry_backoff = st.number_input("Retry backoff", min_value=0.1, max_value=10.0, value=float(st.session_state.retry_backoff), step=0.5)
+            st.session_state.timeout = st.number_input("Timeout (seconds)", min_value=5, max_value=120, value=int(st.session_state.timeout), step=1)
 
 
 def render_home_page() -> None:
@@ -405,9 +429,9 @@ def render_home_page() -> None:
     st.markdown(
         f"""
         <section class="hero-shell">
-            <div class="hero-kicker">Mountain terrain intelligence · premium route analytics</div>
+            <div class="hero-kicker">Terrain intelligence · bundled demo trails · live route analysis</div>
             <div class="hero-title">HikeIQ</div>
-            <div class="hero-subtitle">Analyze any hiking trail using high-resolution global terrain data. Upload a GPX route or draw a line on the map, then get elevation, slope, difficulty, time, calories, and route insights in a polished product experience.</div>
+            <div class="hero-subtitle">The dashboard starts with every bundled GPX trail already loaded. Switch routes, inspect the map, compare terrain, or upload your own GPX file without waiting for a blank screen.</div>
             <div class="hero-actions">
                 <button class="stButton" disabled style="display:none"></button>
             </div>
@@ -418,17 +442,15 @@ def render_home_page() -> None:
 
     action_left, action_right = st.columns([1, 1], gap="small")
     with action_left:
-        if st.button("Upload GPX", type="primary", width="stretch"):
+        if st.button("Open analysis", type="primary", width="stretch", help="Open the analysis workspace for the currently selected route."):
             st.session_state.active_page = "Trail analysis"
             st.rerun()
     with action_right:
-        if st.button("Explore demo trail", width="stretch"):
+        if st.button("Switch demo trail", width="stretch", help="Jump to the analysis workspace and switch routes if needed."):
             st.session_state.active_page = "Trail analysis"
-            st.session_state.route_mode = "Demo trail"
-            set_payload(cached_demo_route())
             st.rerun()
 
-    st.space("medium")
+    vertical_space("medium")
     render_metric_row(
         [
             (":material/route:", "Distance", hero_distance, "Total trail length", config.ACCENT_BLUE),
@@ -439,7 +461,11 @@ def render_home_page() -> None:
     )
 
     if analysis is not None:
-        st.space("medium")
+        vertical_space("medium")
+        render_map_panel(analysis)
+
+    if analysis is not None:
+        vertical_space("medium")
         with st.container(border=True):
             st.markdown("<div class='panel-title'>Current trail snapshot</div>", unsafe_allow_html=True)
             st.markdown(
@@ -485,12 +511,24 @@ def render_analysis_header(analysis: analytics.RouteAnalysis) -> None:
 def render_map_panel(analysis: analytics.RouteAnalysis) -> None:
     with st.container(border=True):
         st.markdown("<div class='panel-title'>Route map</div>", unsafe_allow_html=True)
-        st.markdown("<p class='panel-subtitle'>Pan, zoom, switch basemaps, and inspect clickable points. Draw mode lets you sketch a route directly on the map.</p>", unsafe_allow_html=True)
-        if st.session_state.route_mode == "Draw route":
+        st.markdown("<p class='panel-subtitle'>Pan, zoom, and inspect the active route. Demo mode shows all bundled trails at once and highlights the selected one.</p>", unsafe_allow_html=True)
+        payload = st.session_state.get("current_route_payload") or {}
+        payload_source = payload.get("source")
+        if payload_source == "demo":
+            demo_routes = [(route.name, route.points) for route in cached_demo_routes()]
+            route_map = maps.build_multi_route_map(
+                demo_routes,
+                selected_route_name=st.session_state.selected_demo_route_name,
+                show_contours=st.session_state.show_contours,
+                show_labels=st.session_state.show_labels,
+            )
+            st_folium(route_map, height=620, key=f"demo-map-{st.session_state.selected_demo_route_name}", returned_objects=[])
+        elif st.session_state.route_mode == "Draw route":
             if analysis is not None:
                 draw_map = maps.build_route_map(
                     analysis.points,
-                    tile_theme=st.session_state.route_theme,
+                    route_name=analysis.route_name,
+                    tile_theme="Light",
                     show_contours=st.session_state.show_contours,
                     show_labels=st.session_state.show_labels,
                     draw_controls=True,
@@ -499,20 +537,16 @@ def render_map_panel(analysis: analytics.RouteAnalysis) -> None:
                 draw_map = maps.build_draw_map(
                     center_lat=config.DEFAULT_LATITUDE,
                     center_lon=config.DEFAULT_LONGITUDE,
-                    tile_theme=st.session_state.route_theme,
+                    tile_theme="Light",
                     show_contours=st.session_state.show_contours,
                 )
-            drawn = st_folium(
-                draw_map,
-                height=620,
-                key=f"draw-map-{st.session_state.route_theme}-{st.session_state.show_contours}",
-                returned_objects=["all_drawings", "last_active_drawing"],
-            )
+            drawn = st_folium(draw_map, height=620, key=f"draw-map-{st.session_state.show_contours}", returned_objects=["all_drawings", "last_active_drawing"])
             drawings = drawn.get("all_drawings") or drawn.get("last_active_drawing")
             if drawings:
                 try:
                     parsed = gpx_parser.parse_drawn_route(drawings, fallback_name="Drawn trail")
                     set_payload(parsed)
+                    st.session_state.route_mode = "Draw route"
                     st.toast("Drawn route captured.")
                     st.rerun()
                 except ValueError as exc:
@@ -520,17 +554,13 @@ def render_map_panel(analysis: analytics.RouteAnalysis) -> None:
         else:
             route_map = maps.build_route_map(
                 analysis.points,
-                tile_theme=st.session_state.route_theme,
+                route_name=analysis.route_name,
+                tile_theme="Light",
                 show_contours=st.session_state.show_contours,
                 show_labels=st.session_state.show_labels,
                 draw_controls=False,
             )
-            st_folium(
-                route_map,
-                height=620,
-                key=f"route-map-{st.session_state.current_analysis_signature}",
-                returned_objects=[],
-            )
+            st_folium(route_map, height=620, key=f"route-map-{st.session_state.current_analysis_signature}", returned_objects=[])
 
 
 def render_profile_panel(analysis: analytics.RouteAnalysis) -> None:
@@ -550,7 +580,7 @@ def render_summary_metrics(analysis: analytics.RouteAnalysis) -> None:
             (":material/place:", "Minimum elevation", format_elevation(analysis.minimum_elevation_m, st.session_state.units), "The lowest sampled point on the trail.", config.ACCENT_GREEN),
         ]
     )
-    st.space("small")
+    vertical_space("small")
     render_metric_row(
         [
             (":material/trending_up:", "Maximum slope", f"{analysis.maximum_slope_degrees:.1f}°", "Steepest terrain sample.", config.DANGER),
@@ -595,23 +625,23 @@ def render_export_panel(analysis: analytics.RouteAnalysis) -> None:
 
         export_columns = st.columns(2, gap="small")
         with export_columns[0]:
-            st.download_button("CSV report", csv_bytes, file_name=f"{analysis.route_name.lower().replace(' ', '_')}.csv", mime="text/csv", width="stretch")
+            st.download_button("CSV report", csv_bytes, file_name=f"{analysis.route_name.lower().replace(' ', '_')}.csv", mime="text/csv", width="stretch", help="Download the enriched route points as CSV.")
         with export_columns[1]:
-            st.download_button("GPX with terrain", gpx_bytes, file_name=f"{analysis.route_name.lower().replace(' ', '_')}_enriched.gpx", mime="application/gpx+xml", width="stretch")
+            st.download_button("GPX with terrain", gpx_bytes, file_name=f"{analysis.route_name.lower().replace(' ', '_')}_enriched.gpx", mime="application/gpx+xml", width="stretch", help="Download the route with the terrain values embedded in GPX extensions.")
 
         export_columns = st.columns(2, gap="small")
         with export_columns[0]:
-            st.download_button("PDF summary", pdf_bytes, file_name=f"{analysis.route_name.lower().replace(' ', '_')}.pdf", mime="application/pdf", width="stretch")
+            st.download_button("PDF summary", pdf_bytes, file_name=f"{analysis.route_name.lower().replace(' ', '_')}.pdf", mime="application/pdf", width="stretch", help="Download a compact PDF route summary.")
         with export_columns[1]:
             if profile_png is not None:
-                st.download_button("PNG elevation profile", profile_png, file_name=f"{analysis.route_name.lower().replace(' ', '_')}_profile.png", mime="image/png", width="stretch")
+                st.download_button("PNG elevation profile", profile_png, file_name=f"{analysis.route_name.lower().replace(' ', '_')}_profile.png", mime="image/png", width="stretch", help="Download the elevation profile chart as PNG.")
             else:
                 st.caption("PNG export needs Plotly image support in the runtime.")
 
         if difficulty_png is not None:
-            st.download_button("PNG difficulty ring", difficulty_png, file_name=f"{analysis.route_name.lower().replace(' ', '_')}_difficulty.png", mime="image/png", width="stretch")
+            st.download_button("PNG difficulty ring", difficulty_png, file_name=f"{analysis.route_name.lower().replace(' ', '_')}_difficulty.png", mime="image/png", width="stretch", help="Download the difficulty gauge as PNG.")
         if terrain_png is not None:
-            st.download_button("PNG terrain breakdown", terrain_png, file_name=f"{analysis.route_name.lower().replace(' ', '_')}_terrain.png", mime="image/png", width="stretch")
+            st.download_button("PNG terrain breakdown", terrain_png, file_name=f"{analysis.route_name.lower().replace(' ', '_')}_terrain.png", mime="image/png", width="stretch", help="Download the terrain breakdown chart as PNG.")
 
 
 def render_analysis_page() -> None:
@@ -629,21 +659,29 @@ def render_analysis_page() -> None:
 
     settings_left, settings_right = st.columns([1, 1], gap="large")
     with settings_left:
-        st.session_state.route_theme = st.segmented_control(
-            "Map style",
-            options=config.ROUTE_THEME_OPTIONS,
-            default=st.session_state.route_theme,
-            key="map-style-control",
-        )
+        if st.session_state.route_mode == "Demo trail":
+            demo_routes = list(cached_demo_routes())
+            if demo_routes:
+                route_names = [route.name for route in demo_routes]
+                selected_demo_name = st.selectbox(
+                    "Demo trail",
+                    route_names,
+                    index=route_names.index(st.session_state.selected_demo_route_name) if st.session_state.selected_demo_route_name in route_names else 0,
+                    key="analysis-demo-route",
+                    help="Switch the active demo trail used for analysis and the multi-route map.",
+                )
+                if selected_demo_name != st.session_state.selected_demo_route_name:
+                    set_demo_route(selected_demo_name)
+                    st.rerun()
     with settings_right:
         toggle_left, toggle_right = st.columns(2)
         with toggle_left:
-            st.session_state.show_labels = st.toggle("Show elevation labels", value=st.session_state.show_labels)
+            st.session_state.show_labels = st.toggle("Show elevation labels", value=st.session_state.show_labels, help="Display point labels on the map.")
         with toggle_right:
-            st.session_state.show_contours = st.toggle("Show contour lines", value=st.session_state.show_contours)
+            st.session_state.show_contours = st.toggle("Show contour lines", value=st.session_state.show_contours, help="Expand the layer control for basemap and overlay switching.")
 
     if st.session_state.route_mode == "Demo trail" and st.session_state.current_route_payload is None:
-        set_payload(cached_demo_route())
+        set_demo_route(st.session_state.selected_demo_route_name or cached_demo_route().name)
 
     if st.session_state.route_mode == "Upload GPX" and st.session_state.current_route_payload is None:
         st.info("Use the sidebar uploader to load a GPX track or route.")
@@ -662,13 +700,13 @@ def render_analysis_page() -> None:
             draw_map = maps.build_draw_map(
                 center_lat=config.DEFAULT_LATITUDE,
                 center_lon=config.DEFAULT_LONGITUDE,
-                tile_theme=st.session_state.route_theme,
+                tile_theme="Light",
                 show_contours=st.session_state.show_contours,
             )
             drawn = st_folium(
                 draw_map,
                 height=620,
-                key=f"draw-map-empty-{st.session_state.route_theme}-{st.session_state.show_contours}",
+                key=f"draw-map-empty-{st.session_state.show_contours}",
                 returned_objects=["all_drawings", "last_active_drawing"],
             )
             drawings = drawn.get("all_drawings") or drawn.get("last_active_drawing")
@@ -676,6 +714,7 @@ def render_analysis_page() -> None:
                 try:
                     parsed = gpx_parser.parse_drawn_route(drawings, fallback_name="Drawn trail")
                     set_payload(parsed)
+                    st.session_state.route_mode = "Draw route"
                     st.toast("Drawn route captured.")
                     st.rerun()
                 except ValueError as exc:
@@ -689,23 +728,23 @@ def render_analysis_page() -> None:
         return
 
     render_analysis_header(analysis)
-    st.space("small")
+    vertical_space("small")
     render_summary_metrics(analysis)
-    st.space("medium")
+    vertical_space("medium")
 
     left_column, right_column = st.columns([2.15, 1], gap="large")
     with left_column:
         render_map_panel(analysis)
-        st.space("small")
+        vertical_space("small")
         render_profile_panel(analysis)
     with right_column:
         render_insights_panel(analysis)
         render_export_panel(analysis)
 
-    st.space("medium")
+    vertical_space("medium")
     with st.container(border=True):
         st.markdown("<div class='panel-title'>Time and energy estimates</div>", unsafe_allow_html=True)
-        st.markdown("<p class='panel-subtitle'>Naismith-style hiking time plus alternative activity estimates and calorie costs. Adjust weight and fitness in Settings to refine the estimate.</p>", unsafe_allow_html=True)
+        st.markdown("<p class='panel-subtitle'>Naismith-style hiking time plus alternative activity estimates and calorie costs. Adjust weight and fitness in the sidebar to refine the estimate.</p>", unsafe_allow_html=True)
         st.plotly_chart(charts.build_time_estimates_chart(analysis), width="stretch")
         compare_columns = st.columns(2, gap="large")
         with compare_columns[0]:
@@ -713,13 +752,13 @@ def render_analysis_page() -> None:
         with compare_columns[1]:
             st.metric("Moving time", format_duration(analysis.moving_time_hours), delta="Time in motion on the trail", border=True)
 
-    st.space("medium")
+    vertical_space("medium")
     with st.expander("Compare trails", expanded=False):
         left_upload, right_upload = st.columns(2, gap="large")
         with left_upload:
-            left_file = st.file_uploader("First GPX file", type=["gpx", "xml"], key="compare-left", label_visibility="visible")
+            left_file = st.file_uploader("First GPX file", type=["gpx", "xml"], key="compare-left", label_visibility="visible", help="Select the first GPX file for comparison.")
         with right_upload:
-            right_file = st.file_uploader("Second GPX file", type=["gpx", "xml"], key="compare-right", label_visibility="visible")
+            right_file = st.file_uploader("Second GPX file", type=["gpx", "xml"], key="compare-right", label_visibility="visible", help="Select the second GPX file for comparison.")
 
         if left_file is not None and right_file is not None:
             try:
@@ -761,7 +800,7 @@ def render_history_page() -> None:
                     f"<div class='insight-list'><div class='insight-item'>Distance: {format_distance(entry['distance_km'], st.session_state.units)}</div><div class='insight-item'>Elevation gain: {format_elevation(entry['elevation_gain_m'], st.session_state.units)}</div><div class='insight-item'>Difficulty: {entry['difficulty_label']} ({entry['difficulty_score']}/100)</div></div>",
                     unsafe_allow_html=True,
                 )
-                if st.button("Load this trail", key=f"history-load-{entry['signature']}", width="stretch"):
+                if st.button("Load this trail", key=f"history-load-{entry['signature']}", width="stretch", help="Restore this trail to the active analysis view."):
                     st.session_state.current_route_payload = entry["payload"]
                     st.session_state.current_analysis = None
                     st.session_state.current_analysis_signature = None
@@ -769,71 +808,8 @@ def render_history_page() -> None:
                     st.rerun()
 
 
-def render_settings_page() -> None:
-    st.markdown(
-        "<div class='section-header'><div><div class='muted-label'>Settings</div><h2 class='section-title'>Units, theme, and analysis inputs</h2><p class='section-subtitle'>Adjust the presentation and the assumptions used for hiking time and calorie estimates.</p></div></div>",
-        unsafe_allow_html=True,
-    )
-
-    with st.form("settings-form", border=True):
-        col1, col2 = st.columns(2, gap="large")
-        with col1:
-            st.session_state.units = st.segmented_control("Units", options=config.UNITS_OPTIONS, default=st.session_state.units)
-            st.session_state.theme = st.segmented_control("Theme", options=["dark", "light"], default=st.session_state.theme)
-            st.session_state.route_theme = st.segmented_control("Map style", options=config.ROUTE_THEME_OPTIONS, default=st.session_state.route_theme)
-        with col2:
-            st.session_state.weight_kg = st.number_input("Weight (kg)", min_value=30.0, max_value=180.0, value=float(st.session_state.weight_kg), step=0.5)
-            st.session_state.gender = st.segmented_control("Gender", options=config.GENDER_OPTIONS, default=st.session_state.gender)
-            st.session_state.fitness_level = st.segmented_control("Fitness level", options=config.FITNESS_LEVEL_OPTIONS, default=st.session_state.fitness_level)
-        submitted = st.form_submit_button("Save settings")
-
-    if submitted:
-        st.toast("Settings updated.")
-        st.rerun()
-
-    with st.container(border=True):
-        st.markdown("<div class='panel-title'>Current profile</div>", unsafe_allow_html=True)
-        st.markdown(
-            f"<div class='badge-group'>{route_badge(st.session_state.units.title(), config.ACCENT_BLUE)}{route_badge(st.session_state.theme.title(), config.ACCENT_GREEN)}{route_badge(st.session_state.route_theme, config.ACCENT_ORANGE)}{route_badge(f'{float(st.session_state.weight_kg):.1f} kg', config.TEXT_SECONDARY)}{route_badge(st.session_state.fitness_level.title(), config.TEXT_SECONDARY)}</div>",
-            unsafe_allow_html=True,
-        )
-
-
-def render_about_page() -> None:
-    st.markdown(
-        "<div class='section-header'><div><div class='muted-label'>About</div><h2 class='section-title'>How HikeIQ works</h2><p class='section-subtitle'>The terrain engine is reused as-is. HikeIQ wraps it in a route parser, analytics layer, mapping shell, and export workflow.</p></div></div>",
-        unsafe_allow_html=True,
-    )
-    left, right = st.columns(2, gap="large")
-    with left:
-        with st.container(border=True):
-            st.markdown("<div class='panel-title'>Terrain computation</div>", unsafe_allow_html=True)
-            st.write(
-                "HikeIQ sends every latitude/longitude point through the existing global elevation engine, which returns elevation, slope, slope %, aspect, and aspect direction. The analyzer then derives distance, gain, loss, difficulty, timing, calorie cost, and route insights."
-            )
-            st.write("Copernicus DEM at 30 m resolution is used through the backend engine, with caching to keep repeated route evaluations responsive.")
-    with right:
-        with st.container(border=True):
-            st.markdown("<div class='panel-title'>Technology stack</div>", unsafe_allow_html=True)
-            st.markdown(
-                "<div class='badge-group'>"
-                + route_badge("Python", config.ACCENT_BLUE)
-                + route_badge("Streamlit", config.ACCENT_GREEN)
-                + route_badge("Pandas", config.ACCENT_BLUE)
-                + route_badge("NumPy", config.ACCENT_BLUE)
-                + route_badge("Plotly", config.ACCENT_ORANGE)
-                + route_badge("Folium", config.ACCENT_BLUE)
-                + route_badge("Rasterio", config.ACCENT_BLUE)
-                + route_badge("Requests", config.ACCENT_BLUE)
-                + route_badge("GPX parsing", config.ACCENT_GREEN)
-                + "</div>",
-                unsafe_allow_html=True,
-            )
-            st.caption("Production-style UI, reusable helpers, caching, responsive layout, and route export helpers.")
-
-
 initialize_state()
-inject_styles(st.session_state.theme)
+inject_styles()
 render_sidebar()
 
 page = st.session_state.active_page
@@ -843,9 +819,5 @@ elif page == "Trail analysis":
     render_analysis_page()
 elif page == "History":
     render_history_page()
-elif page == "Settings":
-    render_settings_page()
-elif page == "About":
-    render_about_page()
 else:
     render_home_page()

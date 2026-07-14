@@ -17,6 +17,19 @@ pip install -r requirements.txt
 streamlit run terrain_dashboard/app.py
 ```
 
+## Deploy
+
+The cleanest deployment target for this codebase is Streamlit Community Cloud, because the app already has a single Streamlit entrypoint at [terrain_dashboard/app.py](terrain_dashboard/app.py) and a root `requirements.txt`.
+
+Deployment checklist:
+
+1. Push the repo to GitHub.
+2. Connect the repository to Streamlit Community Cloud.
+3. Set the app entrypoint to `terrain_dashboard/app.py`.
+4. Keep `requirements.txt` at the repository root so dependency installation stays simple.
+
+If a managed Streamlit host gives you trouble with geospatial wheels such as `rasterio`, deploy the same repo on a container-friendly host like Render or a small VPS and run the same Streamlit command there.
+
 ## Notes on the file layout
 
 The repository used to keep sample GPX files and generated outputs at the root. Those files now live under `data/raw/` and `outputs/` so the project root stays focused on code and documentation.
