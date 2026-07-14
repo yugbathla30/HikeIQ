@@ -2,12 +2,8 @@ __pycache__/
 .pytest_cache/
 .cache/
 *.pyc
-<<<<<<< HEAD
-outputs/
-!requirements.txt
-=======
 *.csv
 !data/raw/*.csv
 outputs/
 !requirements.txt
->>>>>>> 1d732f5 (Organize data and document deployment)
+.cache/
